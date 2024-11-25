@@ -12,7 +12,7 @@
       in {
         default = pkgs.writers.writePython3Bin
           "fc_release"
-          { libraries = with pkgs; [ scriv ]; doCheck = false; }
+          { makeWrapperArgs = [ "--prefix" "PATH" ":" (pkgs.lib.makeBinPath [ pkgs.scriv ]) ]; doCheck = false; }
           (pkgs.lib.readFile ./fc-release.py);
       });
 

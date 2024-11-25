@@ -23,6 +23,6 @@ nix-shell -p python3 -p scriv
 
 ## Notes:
 
-- NixOS versions without changes will be skipped automatically (see help for default versions)
+- NixOS versions without changes will be skipped automatically (see `--help` for default versions)
 - Rerunning without pushing will destroy all previous changes
 - You can specify which `--steps` to run.

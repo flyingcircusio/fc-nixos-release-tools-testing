@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import re
+import subprocess
 from pathlib import Path
 from subprocess import CalledProcessError, run
 
 DEFAULT_NIXOS_VERSIONS = ["21.05", "23.05", "23.11", "24.05"]
-STEPS = ["prepare", "skip_no_change", "changelog", "merge", "backmerge", "push"]
+STEPS = ["prepare", "skip_no_change", "collect_changelog", "merge", "backmerge", "add_detailed_changelog", "push"]
 
 WORK_DIR = Path("work")
 FC_NIXOS = WORK_DIR / "fc-nixos"
@@ -29,8 +31,12 @@ def git(path: Path, *cmd: str, check=True, **kw):
     return run(["git", "-C", str(path)] + list(cmd), check=check, **kw)
 
 
+def git_stdout(*args, **kw):
+    return git(*args, **kw, check=True, text=True, stdout=subprocess.PIPE).stdout
+
+
 def git_remote(path: Path):
-    out = git(path, "remote", "-v", capture_output=True, text=True).stdout
+    out = git_stdout(path, "remote", "-v")
     return re.findall(r"^origin\s(.+?)\s\(.+\)$", out, re.MULTILINE)
 
 
@@ -68,6 +74,10 @@ class Release:
     def doc_fragment_path(self):
         return FC_DOCS / "changelog.d" / f"{self.nixos_version}.md"
 
+    @property
+    def doc_fragment_detailed_path(self):
+        return self.doc_fragment_path.with_name(f"{self.nixos_version}_detailed.md")
+
     def prepare(self):
         ensure_repo(FC_DOCS, "git@github.com:flyingcircusio/doc.git")
         ensure_repo(FC_NIXOS, "git@github.com:flyingcircusio/fc-nixos.git")
@@ -87,7 +97,7 @@ class Release:
         print(f"No changes for {self.nixos_version} detected")
         return SKIP_BRANCH
 
-    def changelog(self):
+    def collect_changelog(self):
         checkout(FC_NIXOS, self.branch_stag)
         if not CHANGELOG.parent.exists():
             print(f"Could not find '{str(CHANGELOG.parent)}'. Skipping changelog generation...")
@@ -109,6 +119,7 @@ class Release:
             return
 
         new_fragment = TEMP_CHANGELOG.read_text()
+        # TODO: remove empty sections
 
         doc_fragment = new_fragment.replace(
             "\n## Impact", f"\n## Impact\n### {self.nixos_version}"
@@ -126,14 +137,14 @@ class Release:
 
         TEMP_CHANGELOG.unlink()
 
-        git(FC_DOCS, "add", str(self.doc_fragment_path))
+        git(FC_DOCS, "add", str(self.doc_fragment_path.relative_to(FC_DOCS)))
         git(FC_DOCS, "commit", "-m", f"Add fragment for {self.nixos_version}")
         try:
-            git(FC_NIXOS, "add", str(TEMP_CHANGELOG), str(CHANGELOG))
+            git(FC_NIXOS, "add", str(TEMP_CHANGELOG.relative_to(FC_NIXOS)), str(CHANGELOG.relative_to(FC_NIXOS)))
             git(FC_NIXOS, "commit", "-m", "Collect changelog fragments")
         except CalledProcessError:
             print(
-                "Failed to commit Changelog. Commit it manually and continue after the `changelog` stage"
+                "Failed to commit Changelog. Commit it manually and continue after the `collect_changelog` stage"
             )
             raise
 
@@ -150,6 +161,26 @@ class Release:
         msg = f"Backmerge branch '{self.branch_prod}' into '{self.branch_dev}'' for release {self.release_id}"
         git(FC_NIXOS, "merge", "-m", msg, self.branch_prod)
 
+    def add_detailed_changelog(self):
+        versions_json_path = "release/versions.json"
+        old_hash = git_stdout(FC_NIXOS, "rev-parse", "--verify", "origin/" + self.branch_prod).strip()
+        new_hash = git_stdout(FC_NIXOS, "rev-parse", "--verify", self.branch_prod).strip()
+        detailed_changes = "## Detailed Changes\n"
+        detailed_changes += f"- NixOS {self.nixos_version}: [platform code](https://github.com/flyingcircusio/fc-nixos/compare/{old_hash}...{new_hash})"
+        try:
+            old_versions = git_stdout(FC_NIXOS, "show", "origin/" + self.branch_prod + ":" + versions_json_path)
+            new_versions = git_stdout(FC_NIXOS, "show", self.branch_prod + ":" + versions_json_path)
+            old_nixpkgs_hash = json.loads(old_versions)["nixpkgs"]["rev"]
+            new_nixpkgs_hash = json.loads(new_versions)["nixpkgs"]["rev"]
+            if old_nixpkgs_hash != new_nixpkgs_hash:
+                detailed_changes += f", [nixpkgs/upstream changes](https://github.com/flyingcircusio/nixpkgs/compare/{old_nixpkgs_hash}...{new_nixpkgs_hash})"
+        except CalledProcessError:
+            print(f"Could not find '{versions_json_path}'. Continuing without nixpkgs changelog...")
+        print(detailed_changes)
+        self.doc_fragment_detailed_path.write_text(detailed_changes)
+        git(FC_DOCS, "add", str(self.doc_fragment_detailed_path.relative_to(FC_DOCS)))
+        git(FC_DOCS, "commit", "-m", f"Add detailed fragment for {self.nixos_version}")
+
     def push(self):
         print(f"Committed changes ({self.nixos_version}):")
         print("fc-nixos:")
@@ -159,7 +190,7 @@ class Release:
             )
         print("doc:")
         git(FC_DOCS,
-            "log", "--graph", "--decorate", "--format=short", f"^origin/{self.branch_doc}",
+            "log", "--graph", "--decorate", "--format=short", f"origin/{self.branch_doc}..{self.branch_doc}",
             env={"PAGER": ""},
             )
         cmd = f"git -C {FC_NIXOS} push origin {self.branch_dev} {self.branch_stag} {self.branch_prod} && git -C {FC_DOCS} push origin {self.branch_doc}"
