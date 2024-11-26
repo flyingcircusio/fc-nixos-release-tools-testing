@@ -2,6 +2,7 @@
 
 ## Usage
 
+Install the [GitHub CLI](https://cli.github.com/)
 ```bash
 ./bootstrap.sh
 source .venv/bin/activate
@@ -17,7 +18,7 @@ nix run .# -- 202X_XX
 or
 
 ```bash
-nix-shell -p python3 -p scriv
+nix-shell -p python3 -p scriv -p gh
 ./fc-release.py 202X_XX
 ```
 
