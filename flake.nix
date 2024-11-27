@@ -9,23 +9,22 @@
     {
       packages = forAllSystems (system: let
         pkgs = nixpkgs.legacyPackages.${system};
+        ppkgs = pkgs.python3.pkgs;
       in {
-        default = pkgs.writers.writePython3Bin
-          "fc_release"
-          {
-            makeWrapperArgs = [ "--prefix" "PATH" ":" (pkgs.lib.makeBinPath [ pkgs.scriv pkgs.gh ]) ];
-            doCheck = false;
-          }
-          (pkgs.lib.readFile ./fc-release.py);
+        default = ppkgs.buildPythonApplication {
+          name = "fc-release";
+          src = ./.;
+          pyproject = true;
+          nativeBuildInputs = [ ppkgs.setuptools-scm ];
+          propagatedBuildInputs = [ ppkgs.setuptools pkgs.scriv pkgs.gh ];
+        };
       });
 
       devShells = forAllSystems (system: let
         pkgs = nixpkgs.legacyPackages.${system};
       in {
         default = pkgs.mkShell {
-          packages = [
-            pkgs.scriv
-          ];
+          packages = [ pkgs.scriv pkgs.gh ];
         };
       });
     };

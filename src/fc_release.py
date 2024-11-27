@@ -4,9 +4,8 @@ import argparse
 import json
 import os
 import re
-import subprocess
 from pathlib import Path
-from subprocess import CalledProcessError, run
+from subprocess import CalledProcessError, check_output, run
 
 from nixpkgs_changelog import (
     filter_and_merge_commit_msgs,
@@ -39,9 +38,6 @@ SKIP_BRANCH = object()
 NIXPKGS_CHANGELOG_TEMPLATE = """\
 < !--
 Generated Nixpkgs Changelog. Adjust as necessary.
-
-Output of version_diff:
-{version_diff}
 -->
 
 ## NixOS {nixos_version} platform
@@ -68,13 +64,11 @@ def release_id_type(arg_value):
 
 
 def git(path: Path, *cmd: str, check=True, **kw):
-    return run(["git", "-C", str(path)] + list(cmd), check=check, **kw)
+    return run(["git"] + list(cmd), cwd=path, check=check, **kw)
 
 
-def git_stdout(*args, **kw):
-    return git(
-        *args, **kw, check=True, text=True, stdout=subprocess.PIPE
-    ).stdout
+def git_stdout(path: Path, *cmd: str, **kw):
+    return check_output(["git"] + list(cmd), cwd=path, text=True, **kw)
 
 
 def rev_parse(path: Path, rev: str):
@@ -161,19 +155,23 @@ class Release:
                 self.branch_stag,
                 self.branch_prod,
             )
+            print(f"No changes for {self.nixos_version} detected")
+            return SKIP_BRANCH
         except CalledProcessError as e:
             if e.returncode != 1:
                 raise
 
-        print(f"No changes for {self.nixos_version} detected")
-        return SKIP_BRANCH
-
     def diff_release(self):
-        num_dev_prod_commits = len(
-            git_stdout(
-                FC_NIXOS, "cherry", self.branch_prod, self.branch_dev
-            ).splitlines()
-        )
+        def cherry(upstream: str, head: str):
+            res = git_stdout(FC_NIXOS, "cherry", upstream, head, "-v")
+            print(
+                f"Commits in {head}, not in {upstream} ({len(res.splitlines())}):"
+            )
+            print()
+            print(f"git cherry '{upstream}' '{head}' -v")
+            print(res)
+            print()
+
         dev_rev = rev_parse(FC_NIXOS, self.branch_dev)
         stag_rev = rev_parse(FC_NIXOS, self.branch_stag)
         prod_rev = rev_parse(FC_NIXOS, self.branch_prod)
@@ -189,32 +187,16 @@ class Release:
         print(f"gh pr list --state=merged -B '{self.branch_dev}'")
         try:
             run(
-                [
-                    "gh",
-                    "pr",
-                    "list",
-                    "-R",
-                    "flyingcircusio/fc-nixos",
-                    "--state=merged",
-                    "-B",
-                    self.branch_dev,
-                ]
+                ["gh", "pr", "list", "--state=merged", "-B", self.branch_dev],
+                cwd=FC_NIXOS,
             )
         except FileNotFoundError:
             print("'gh' is not available. Please check merged PRs manually")
         print()
-        print(f"Commits in {self.branch_dev}, not in {self.branch_stag}:")
-        print()
-        print(f"git cherry '{self.branch_stag}' '{self.branch_dev}' -v")
-        git(FC_NIXOS, "cherry", self.branch_stag, self.branch_dev, "-v")
-        print()
-        print(
-            f"Commits in {self.branch_dev}, not in {self.branch_prod} ({num_dev_prod_commits}):"
-        )
-        print()
-        print(f"git cherry '{self.branch_prod}' '{self.branch_dev}' -v")
-        git(FC_NIXOS, "cherry", self.branch_prod, self.branch_dev, "-v")
-        print()
+
+        cherry(self.branch_stag, self.branch_dev)
+        cherry(self.branch_prod, self.branch_dev)
+
         print(f"git diff '{self.branch_prod}' '{self.branch_dev}'")
         print("Press Enter to show full diff")
 
@@ -242,7 +224,7 @@ class Release:
 
         TEMP_CHANGELOG.open("w").close()  # truncate
         try:
-            run(["scriv", "collect", "--add"], check=True)
+            run(["scriv", "collect", "--add"], cwd=FC_NIXOS, check=True)
         except CalledProcessError:
             print("'scriv' failed. Continuing without changelog...")
             return
@@ -303,7 +285,9 @@ class Release:
         new_rev = rev_parse(FC_NIXOS, self.branch_prod)
         nixpkgs_changelog = self.generate_nixpkgs_changelog(old_rev, new_rev)
         if nixpkgs_changelog:
-            new_fragment = NIXPKGS_CHANGELOG_TEMPLATE.format(*nixpkgs_changelog)
+            new_fragment = NIXPKGS_CHANGELOG_TEMPLATE.format(
+                **nixpkgs_changelog
+            )
         else:
             new_fragment = SHORT_CHANGELOG_TEMPLATE.format(
                 nixos_version=self.nixos_version,
@@ -355,13 +339,12 @@ class Release:
             )
             nixpkgs_changes = filter_and_merge_commit_msgs(
                 get_interesting_commit_msgs(
-                    new_pversions, FC_NIXPKGS, old_rev, new_rev
+                    new_pversions, FC_NIXPKGS, old_nixpkgs_rev, new_nixpkgs_rev
                 )
+                + version_diff_lines(old_pversions, new_pversions)
             )
-            version_diff = version_diff_lines(old_pversions, new_pversions)
 
             return dict(
-                version_diff="\n".join(version_diff),
                 nixpkgs_changelog="\n".join(
                     "    - " + m for m in nixpkgs_changes
                 ),
@@ -385,17 +368,23 @@ class Release:
             "--format=short",
             f"origin/{self.branch_doc}..{self.branch_doc}",
         )
-        cmd = f"git -C {FC_NIXOS} push origin {self.branch_dev} {self.branch_stag} {self.branch_prod} && git -C {FC_DOCS} push origin {self.branch_doc}"
-        # cmd = f"git -C {FC_NIXOS} push --dry-run origin {self.branch_dev} {self.branch_stag} {self.branch_prod} && git -C {FC_DOCS} push --dry-run origin {self.branch_doc}"
+        print()
         print(
             "If this looks correct, press Enter to push (or use ^C to abort all releases and ^D to abort this release)."
         )
-        print(f"This will issue: `{cmd}`")
         try:
             input()
         except EOFError:
             return SKIP_BRANCH
-        run(cmd, shell=True, check=True)
+        git(
+            FC_NIXOS,
+            "push",
+            "origin",
+            self.branch_dev,
+            self.branch_stag,
+            self.branch_prod,
+        )
+        git(FC_DOCS, "push", "origin", self.branch_doc)
 
 
 def main():
@@ -421,9 +410,9 @@ def main():
 
     for nixos_version in args.nixos_versions:
         release = Release(args.release_id, nixos_version)
-        print(f"Performing release for {nixos_version} ({args.release_id})")
+        print(f"\nPerforming release for {nixos_version} ({args.release_id})")
         for step_name in args.steps:
-            print(f"Release step: {step_name}")
+            print(f"\nRelease step: {step_name}")
             rc = getattr(release, step_name)()
             if rc == SKIP_BRANCH:
                 print(f"Aborted release for {nixos_version}")

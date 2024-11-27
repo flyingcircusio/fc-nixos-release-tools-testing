@@ -1,7 +1,6 @@
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import Path
 from subprocess import check_output
 
 PKG_UPDATE_RE = re.compile(
@@ -77,11 +76,11 @@ def version_diff_lines(old_versions, new_versions):
         new = new_versions.get(pkg_name, {}).get("version")
 
         if not old:
-            lines.append(f"(old version missing for {pkg_name})")
+            lines.append(f"{pkg_name}: (old version missing)")
             continue
 
         if not new:
-            lines.append(f"(new version missing for {pkg_name})")
+            lines.append(f"{pkg_name}: (new version missing)")
             continue
 
         if old != new:
@@ -142,12 +141,12 @@ def filter_and_merge_commit_msgs(msgs):
 
         if pkg_update := PkgUpdate.parse_msg(msg):
             merge_candidates = parsed_updates[pkg_update.name]
-            if len(merge_candidates) > 0 and (
-                merged := merge_candidates[-1].merge(pkg_update)
+            while merge_target := next(
+                filter(pkg_update.merge, merge_candidates), None
             ):
-                merge_candidates[-1] = merged
-            else:
-                merge_candidates.append(pkg_update)
+                merge_candidates.remove(merge_target)
+                pkg_update = pkg_update.merge(merge_target)
+            merge_candidates.append(pkg_update)
         else:
             out_msgs.append(msg)
 
