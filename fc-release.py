@@ -7,11 +7,20 @@ import re
 import subprocess
 from pathlib import Path
 from subprocess import CalledProcessError, run
+
 from nixpkgs_changelog import generate_nixpkgs_changelog
 
 DEFAULT_NIXOS_VERSIONS = ["21.05", "23.05", "23.11", "24.05"]
-STEPS = ["prepare", "skip_no_change", "diff_release", "collect_changelog", "merge", "backmerge",
-         "add_detailed_changelog", "push"]
+STEPS = [
+    "prepare",
+    "skip_no_change",
+    "diff_release",
+    "collect_changelog",
+    "merge",
+    "backmerge",
+    "add_detailed_changelog",
+    "push",
+]
 
 WORK_DIR = Path("work")
 FC_NIXOS = WORK_DIR / "fc-nixos"
@@ -36,7 +45,9 @@ def git(path: Path, *cmd: str, check=True, **kw):
 
 
 def git_stdout(*args, **kw):
-    return git(*args, **kw, check=True, text=True, stdout=subprocess.PIPE).stdout
+    return git(
+        *args, **kw, check=True, text=True, stdout=subprocess.PIPE
+    ).stdout
 
 
 def git_remote(path: Path):
@@ -51,7 +62,16 @@ def ensure_repo(path: Path, url: str, *fetch_args: str):
     if set(git_remote(path)) != {url}:
         git(path, "remote", "rm", "origin", check=False)
         git(path, "remote", "add", "origin", url)
-    git(path, "fetch", "origin", "--tags", "--prune", "--prune-tags", "--force", *fetch_args)
+    git(
+        path,
+        "fetch",
+        "origin",
+        "--tags",
+        "--prune",
+        "--prune-tags",
+        "--force",
+        *fetch_args,
+    )
 
 
 def checkout(path: Path, branch: str, reset: bool = False, clean: bool = False):
@@ -79,7 +99,9 @@ class Release:
 
     @property
     def doc_fragment_detailed_path(self):
-        return self.doc_fragment_path.with_name(f"{self.nixos_version}_detailed.md")
+        return self.doc_fragment_path.with_name(
+            f"{self.nixos_version}_detailed.md"
+        )
 
     def prepare(self):
         ensure_repo(FC_DOCS, "git@github.com:flyingcircusio/doc.git")
@@ -94,7 +116,13 @@ class Release:
 
     def skip_no_change(self):
         try:
-            git(FC_NIXOS, "merge-base", "--is-ancestor", self.branch_stag, self.branch_prod)
+            git(
+                FC_NIXOS,
+                "merge-base",
+                "--is-ancestor",
+                self.branch_stag,
+                self.branch_prod,
+            )
         except CalledProcessError as e:
             if e.returncode != 1:
                 raise
@@ -103,26 +131,51 @@ class Release:
         return SKIP_BRANCH
 
     def diff_release(self):
-        num_dev_prod_commits = len(git_stdout(FC_NIXOS, "cherry", self.branch_prod, self.branch_dev).splitlines())
-        dev_rev = git_stdout(FC_NIXOS, "rev-parse", "--verify", self.branch_dev).strip()
-        stag_rev = git_stdout(FC_NIXOS, "rev-parse", "--verify", self.branch_stag).strip()
-        prod_rev = git_stdout(FC_NIXOS, "rev-parse", "--verify", self.branch_prod).strip()
+        num_dev_prod_commits = len(
+            git_stdout(
+                FC_NIXOS, "cherry", self.branch_prod, self.branch_dev
+            ).splitlines()
+        )
+        dev_rev = git_stdout(
+            FC_NIXOS, "rev-parse", "--verify", self.branch_dev
+        ).strip()
+        stag_rev = git_stdout(
+            FC_NIXOS, "rev-parse", "--verify", self.branch_stag
+        ).strip()
+        prod_rev = git_stdout(
+            FC_NIXOS, "rev-parse", "--verify", self.branch_prod
+        ).strip()
 
-        print(f"Comparing {self.branch_dev} to {self.branch_prod} {prod_rev}..{dev_rev}")
+        print(
+            f"Comparing {self.branch_dev} to {self.branch_prod} {prod_rev}..{dev_rev}"
+        )
         print(f"{self.branch_stag} is at {stag_rev}")
 
         print("")
         print("Merged PRs:")
         print()
         print(f"gh pr list --state=merged -B '{self.branch_dev}'")
-        run(["gh", "pr", "list", "-R", "flyingcircusio/fc-nixos", "--state=merged", "-B", self.branch_dev])
+        run(
+            [
+                "gh",
+                "pr",
+                "list",
+                "-R",
+                "flyingcircusio/fc-nixos",
+                "--state=merged",
+                "-B",
+                self.branch_dev,
+            ]
+        )
         print()
         print(f"Commits in {self.branch_dev}, not in {self.branch_stag}:")
         print()
         print(f"git cherry '{self.branch_stag}' '{self.branch_dev}' -v")
         git(FC_NIXOS, "cherry", self.branch_stag, self.branch_dev, "-v")
         print()
-        print(f"Commits in {self.branch_dev}, not in {self.branch_prod} ({num_dev_prod_commits}):")
+        print(
+            f"Commits in {self.branch_dev}, not in {self.branch_prod} ({num_dev_prod_commits}):"
+        )
         print()
         print(f"git cherry '{self.branch_prod}' '{self.branch_dev}' -v")
         git(FC_NIXOS, "cherry", self.branch_prod, self.branch_dev, "-v")
@@ -140,11 +193,15 @@ class Release:
     def collect_changelog(self):
         checkout(FC_NIXOS, self.branch_stag)
         if not CHANGELOG.parent.exists():
-            print(f"Could not find '{str(CHANGELOG.parent)}'. Skipping changelog generation...")
+            print(
+                f"Could not find '{str(CHANGELOG.parent)}'. Skipping changelog generation..."
+            )
             # TODO: offer manual edit?
             return
         if self.doc_fragment_path.exists():
-            print(f"The changelog fragment '{self.doc_fragment_path}' already exists")
+            print(
+                f"The changelog fragment '{self.doc_fragment_path}' already exists"
+            )
             print("Remove it (commit & push) or skip changelog generation")
             raise RuntimeError()
 
@@ -180,7 +237,12 @@ class Release:
         git(FC_DOCS, "add", str(self.doc_fragment_path.relative_to(FC_DOCS)))
         git(FC_DOCS, "commit", "-m", f"Add fragment for {self.nixos_version}")
         try:
-            git(FC_NIXOS, "add", str(TEMP_CHANGELOG.relative_to(FC_NIXOS)), str(CHANGELOG.relative_to(FC_NIXOS)))
+            git(
+                FC_NIXOS,
+                "add",
+                str(TEMP_CHANGELOG.relative_to(FC_NIXOS)),
+                str(CHANGELOG.relative_to(FC_NIXOS)),
+            )
             git(FC_NIXOS, "commit", "-m", "Collect changelog fragments")
         except CalledProcessError:
             print(
@@ -204,39 +266,85 @@ class Release:
     def add_detailed_changelog(self):
         versions_json_path = "release/versions.json"
         package_versions_json_path = "release/package-versions.json"
-        old_rev = git_stdout(FC_NIXOS, "rev-parse", "--verify", "origin/" + self.branch_prod).strip()
-        new_rev = git_stdout(FC_NIXOS, "rev-parse", "--verify", self.branch_prod).strip()
+        old_rev = git_stdout(
+            FC_NIXOS, "rev-parse", "--verify", "origin/" + self.branch_prod
+        ).strip()
+        new_rev = git_stdout(
+            FC_NIXOS, "rev-parse", "--verify", self.branch_prod
+        ).strip()
         nixpkgs_changelog = ""
         detailed_changes = "## Detailed Changes\n"
         detailed_changes += f"- NixOS {self.nixos_version}: [platform code](https://github.com/flyingcircusio/fc-nixos/compare/{old_rev}...{new_rev})"
         try:
-            old_versions = json.loads(git_stdout(FC_NIXOS, "show", old_rev + ":" + versions_json_path))
-            new_versions = json.loads(git_stdout(FC_NIXOS, "show", new_rev + ":" + versions_json_path))
-            old_package_versions = json.loads(git_stdout(FC_NIXOS, "show", old_rev + ":" + package_versions_json_path))
-            new_package_versions = json.loads(git_stdout(FC_NIXOS, "show", new_rev + ":" + package_versions_json_path))
+            old_versions = json.loads(
+                git_stdout(FC_NIXOS, "show", old_rev + ":" + versions_json_path)
+            )
+            new_versions = json.loads(
+                git_stdout(FC_NIXOS, "show", new_rev + ":" + versions_json_path)
+            )
+            old_package_versions = json.loads(
+                git_stdout(
+                    FC_NIXOS, "show", old_rev + ":" + package_versions_json_path
+                )
+            )
+            new_package_versions = json.loads(
+                git_stdout(
+                    FC_NIXOS, "show", new_rev + ":" + package_versions_json_path
+                )
+            )
             old_nixpkgs_rev = old_versions["nixpkgs"]["rev"]
             new_nixpkgs_rev = new_versions["nixpkgs"]["rev"]
             if old_nixpkgs_rev != new_nixpkgs_rev:
                 detailed_changes += f", [nixpkgs/upstream changes](https://github.com/flyingcircusio/nixpkgs/compare/{old_nixpkgs_rev}...{new_nixpkgs_rev})"
-                nixpkgs_changelog = generate_nixpkgs_changelog(FC_NIXPKGS, self.nixos_version,
-                                                               old_nixpkgs_rev, new_nixpkgs_rev,
-                                                               new_package_versions, old_package_versions)
+                nixpkgs_changelog = generate_nixpkgs_changelog(
+                    FC_NIXPKGS,
+                    self.nixos_version,
+                    old_nixpkgs_rev,
+                    new_nixpkgs_rev,
+                    new_package_versions,
+                    old_package_versions,
+                )
         except CalledProcessError:
-            print("Could not find relevant version file. Continuing without nixpkgs changelog...")
-        self.doc_fragment_detailed_path.write_text(nixpkgs_changelog + detailed_changes + "\n")
+            print(
+                "Could not find relevant version file. Continuing without nixpkgs changelog..."
+            )
+        self.doc_fragment_detailed_path.write_text(
+            nixpkgs_changelog + detailed_changes + "\n"
+        )
 
         print("Press enter to open generated changelog fragment")
         input()
-        run([os.environ.get("EDITOR", "nano"), str(self.doc_fragment_detailed_path)])
-        git(FC_DOCS, "add", str(self.doc_fragment_detailed_path.relative_to(FC_DOCS)))
-        git(FC_DOCS, "commit", "-m", f"Add detailed fragment for {self.nixos_version}")
+        run(
+            [
+                os.environ.get("EDITOR", "nano"),
+                str(self.doc_fragment_detailed_path),
+            ]
+        )
+        git(
+            FC_DOCS,
+            "add",
+            str(self.doc_fragment_detailed_path.relative_to(FC_DOCS)),
+        )
+        git(
+            FC_DOCS,
+            "commit",
+            "-m",
+            f"Add detailed fragment for {self.nixos_version}",
+        )
 
     def push(self):
         print(f"Committed changes ({self.nixos_version}):")
         print("fc-nixos:")
         git(FC_NIXOS, "log", "--graph", "--decorate", "--format=short", "-n3")
         print("doc:")
-        git(FC_DOCS, "log", "--graph", "--decorate", "--format=short", f"origin/{self.branch_doc}..{self.branch_doc}")
+        git(
+            FC_DOCS,
+            "log",
+            "--graph",
+            "--decorate",
+            "--format=short",
+            f"origin/{self.branch_doc}..{self.branch_doc}",
+        )
         cmd = f"git -C {FC_NIXOS} push origin {self.branch_dev} {self.branch_stag} {self.branch_prod} && git -C {FC_DOCS} push origin {self.branch_doc}"
         # cmd = f"git -C {FC_NIXOS} push --dry-run origin {self.branch_dev} {self.branch_stag} {self.branch_prod} && git -C {FC_DOCS} push --dry-run origin {self.branch_doc}"
         print(
@@ -255,10 +363,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("release_id", type=release_id_type)
     parser.add_argument(
-        "--nixos_versions", default=DEFAULT_NIXOS_VERSIONS, nargs="*", help="(default: %(default)s)"
+        "--nixos_versions",
+        default=DEFAULT_NIXOS_VERSIONS,
+        nargs="*",
+        help="(default: %(default)s)",
     )
     parser.add_argument(
-        "--steps", choices=["all"] + STEPS, default="all", nargs="*", help="(default: %(default)s)"
+        "--steps",
+        choices=["all"] + STEPS,
+        default="all",
+        nargs="*",
+        help="(default: %(default)s)",
     )
     args = parser.parse_args()
     if args.steps == "all" or "all" in args.steps:

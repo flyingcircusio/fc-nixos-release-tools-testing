@@ -50,14 +50,17 @@ class PkgUpdate:
                 other.old_version,
                 self.new_version,
                 self.comments + other.comments,
-                )
-        if self.new_version == other.new_version and self.old_version == other.old_version:
+            )
+        if (
+            self.new_version == other.new_version
+            and self.old_version == other.old_version
+        ):
             return PkgUpdate(
                 self.name,
                 self.old_version,
                 self.new_version,
                 self.comments + other.comments,
-                )
+            )
 
     def format_as_msg(self):
         update_msg = f"{self.name}: {self.old_version} -> {self.new_version}"
@@ -88,12 +91,22 @@ def version_diff_lines(old_versions, new_versions):
 
 
 def get_interesting_commit_msgs(
-        package_versions, nixpkgs_repo, old_rev, new_rev
+    package_versions, nixpkgs_repo, old_rev, new_rev
 ):
     version_range = f"{old_rev}..{new_rev}"
     print(f"comparing {version_range}")
-    lines = check_output(["git", "-C", str(nixpkgs_repo), "log", "--pretty=format:%s", version_range], text=True).splitlines()
-    msgs = [l for l in lines if not l.startswith("Merge ")]
+    lines = check_output(
+        [
+            "git",
+            "-C",
+            str(nixpkgs_repo),
+            "log",
+            "--pretty=format:%s",
+            version_range,
+        ],
+        text=True,
+    ).splitlines()
+    msgs = [m for m in lines if not m.startswith("Merge ")]
     search_words = set()
     for k, v in package_versions.items():
         search_words.add(k)
@@ -129,14 +142,18 @@ def filter_and_merge_commit_msgs(msgs):
 
         if pkg_update := PkgUpdate.parse_msg(msg):
             merge_candidates = parsed_updates[pkg_update.name]
-            if len(merge_candidates) > 0 and (merged := merge_candidates[-1].merge(pkg_update)):
+            if len(merge_candidates) > 0 and (
+                merged := merge_candidates[-1].merge(pkg_update)
+            ):
                 merge_candidates[-1] = merged
             else:
                 merge_candidates.append(pkg_update)
         else:
             out_msgs.append(msg)
 
-    out_msgs.extend(e.format_as_msg() for l in parsed_updates.values() for e in l)
+    out_msgs.extend(
+        m.format_as_msg() for p in parsed_updates.values() for m in p
+    )
 
     return sorted(out_msgs)
 
@@ -157,19 +174,23 @@ Output of version_diff:
 
 
 def generate_nixpkgs_changelog(
-        nixpkgs_repo: Path,
-        nixos_version: str,
-        old_rev: str,
-        new_rev: str,
-        new_package_versions: dict,
-        old_package_versions: dict,
+    nixpkgs_repo: Path,
+    nixos_version: str,
+    old_rev: str,
+    new_rev: str,
+    new_package_versions: dict,
+    old_package_versions: dict,
 ):
     interesting_msgs = get_interesting_commit_msgs(
         new_package_versions, nixpkgs_repo, old_rev, new_rev
     )
     msgs = filter_and_merge_commit_msgs(interesting_msgs)
-    version_diff = version_diff_lines(old_package_versions, new_package_versions)
+    version_diff = version_diff_lines(
+        old_package_versions, new_package_versions
+    )
 
-    return NIXPKGS_CHANGELOG_TEMPLATE.format(version_diff="\n".join(version_diff),
-                                             nixpkgs_changelog="\n".join("    - " + m for m in msgs),
-                                             nixos_version=nixos_version)
+    return NIXPKGS_CHANGELOG_TEMPLATE.format(
+        version_diff="\n".join(version_diff),
+        nixpkgs_changelog="\n".join("    - " + m for m in msgs),
+        nixos_version=nixos_version,
+    )
