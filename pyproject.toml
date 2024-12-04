@@ -15,7 +15,10 @@ dynamic = ["version"]
 requires-python = ">= 3.10"
 dependencies = [
     "scriv==1.5.1",
+    "pygithub~=2",
+    "gitpython~=3"
 ]
 
 [project.scripts]
 fc-release = "release.fc_release:main"
+update-nixpkgs = "update_nixpkgs:main"

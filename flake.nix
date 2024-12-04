@@ -18,6 +18,8 @@
           build-system = [ pypkgs.setuptools-scm ];
           dependencies = [
             pypkgs.setuptools
+            pypkgs.gitpython
+            pypkgs.pygithub
             pkgs.scriv
             pkgs.gh
           ];
