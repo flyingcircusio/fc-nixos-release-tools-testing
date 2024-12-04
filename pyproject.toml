@@ -19,3 +19,4 @@ dependencies = [
 
 [project.scripts]
 fc-release = "release.fc_release:main"
+update-nixpkgs = "update_nixpkgs:main"

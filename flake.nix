@@ -9,15 +9,17 @@
     {
       packages = forAllSystems (system: let
         pkgs = nixpkgs.legacyPackages.${system};
-        ppkgs = pkgs.python3.pkgs;
+        pypkgs = pkgs.python3.pkgs;
       in {
-        default = ppkgs.buildPythonApplication {
+        default = pypkgs.buildPythonApplication {
           name = "fc-release";
           src = ./.;
           pyproject = true;
-          build-system = [ ppkgs.setuptools-scm ];
+          build-system = [ pypkgs.setuptools-scm ];
           dependencies = [
-            ppkgs.setuptools
+            pypkgs.setuptools
+            pypkgs.gitpython
+            pypkgs.pygithub
             pkgs.scriv
             pkgs.gh
           ];
