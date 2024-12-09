@@ -263,7 +263,7 @@ def run(
             "upstream": Remote(nixpkgs_upstream_url, [nixpkgs_target_branch]),
             "origin": Remote(
                 nixpkgs_origin_url,
-                [nixpkgs_target_branch, last_day_integration_branch],
+                [nixpkgs_target_branch, integration_branch, last_day_integration_branch],
             ),
         }
         nixpkgs_repo = nixpkgs_repository(nixpkgs_dir, remotes)
