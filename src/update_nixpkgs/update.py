@@ -92,17 +92,20 @@ def rebase_nixpkgs(
     branch_to_rebase: str,
     integration_branch: str,
     last_day_integration_branch: str,
+    force: bool
 ) -> NixpkgsRebaseResult | None:
     logging.info("Trying to rebase nixpkgs repository.")
     if nixpkgs_repo.is_dirty():
         raise Exception("Repository is dirty!")
 
-    if not any(integration_branch == head.name for head in nixpkgs_repo.heads):
+    if not any(f"origin/{integration_branch}" == ref.name for ref in nixpkgs_repo.refs):
+        logging.info("Creating new integration branch")
         tracking_branch = nixpkgs_repo.create_head(
             integration_branch, f"origin/{branch_to_rebase}"
         )
         tracking_branch.checkout()
     else:
+        logging.info("Checking out existing integration branch")
         nixpkgs_repo.git.checkout(integration_branch)
 
     latest_upstream = nixpkgs_repo.refs[f"upstream/{branch_to_rebase}"].commit
@@ -112,7 +115,7 @@ def rebase_nixpkgs(
 
     if all(
         latest_upstream.hexsha != commit.hexsha for commit in common_grounds
-    ):
+    ) or force:
         logging.info(
             f"Latest commit of {branch_to_rebase} is '{latest_upstream.hexsha}' which is not part of our fork, rebasing."
         )
@@ -243,6 +246,7 @@ def run(
     nixpkgs_origin_url: str,
     fc_nixos_dir: str,
     nixpkgs_dir: str,
+    force: bool,
     github_access_token: str,
 ):
     today = datetime.date.today().isoformat()
@@ -272,6 +276,7 @@ def run(
             nixpkgs_target_branch,
             integration_branch,
             last_day_integration_branch,
+            force
         ):
             logging.info(
                 f"Updated 'nixpkgs' to '{result.fork_after_rebase.hexsha}'"

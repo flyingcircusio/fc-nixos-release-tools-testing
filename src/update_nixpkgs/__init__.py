@@ -50,6 +50,12 @@ def main():
         required=True,
         nargs="+",
     )
+    parser_update.add_argument(
+        "--force",
+        help="Create new PR, even if no changes are detected",
+        action=argparse.BooleanOptionalAction,
+        default=False
+    )
     parser_update.set_defaults(func=update_nixpkgs.update.run)
 
     parser_cleanup = subparsers.add_parser(
