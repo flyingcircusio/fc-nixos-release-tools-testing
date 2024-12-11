@@ -1,7 +1,7 @@
 import re
+import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
-from subprocess import check_output
 
 PKG_UPDATE_RE = re.compile(
     r"(?P<name>.+): "
@@ -94,7 +94,7 @@ def get_interesting_commit_msgs(
 ):
     version_range = f"{old_rev}..{new_rev}"
     print(f"comparing {version_range}")
-    lines = check_output(
+    lines = subprocess.check_output(
         [
             "git",
             "-C",

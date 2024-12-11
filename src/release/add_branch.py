@@ -1,23 +1,30 @@
-#!/usr/bin/env python3
+import subprocess
 
-import argparse
-import json
-import os
-import re
-from pathlib import Path
-from subprocess import CalledProcessError, check_output, run
-
-from release.nixpkgs_changelog import (
+from .nixpkgs_changelog import (
     filter_and_merge_commit_msgs,
     get_interesting_commit_msgs,
     version_diff_lines,
 )
+from .state import State
+from .utils import (
+    EDITOR,
+    FC_DOCS,
+    FC_NIXOS,
+    FC_NIXPKGS,
+    checkout,
+    ensure_repo,
+    git,
+    git_stdout,
+    load_json,
+    machine_prefix,
+    rev_parse,
+)
 
-DEFAULT_NIXOS_VERSIONS = ["21.05", "23.05", "23.11", "24.05"]
 STEPS = [
     "prepare",
     "skip_no_change",
     "diff_release",
+    "check_hydra",
     "collect_changelog",
     "merge",
     "backmerge",
@@ -25,18 +32,11 @@ STEPS = [
     "push",
 ]
 
-EDITOR = os.environ.get("EDITOR", "nano")
-WORK_DIR = Path("work")
-FC_NIXOS = WORK_DIR / "fc-nixos"
-FC_DOCS = WORK_DIR / "doc"
-FC_NIXPKGS = WORK_DIR / "nixpkgs"
 CHANGELOG = FC_NIXOS / "changelog.d" / "CHANGELOG.md"
 TEMP_CHANGELOG = CHANGELOG.with_suffix(CHANGELOG.suffix + ".tmp")
 
-SKIP_BRANCH = object()
-
 NIXPKGS_CHANGELOG_TEMPLATE = """\
-< !--
+<!--
 Generated Nixpkgs Changelog. Adjust as necessary.
 -->
 
@@ -55,67 +55,11 @@ SHORT_CHANGELOG_TEMPLATE = """\
 """
 
 
-def release_id_type(arg_value):
-    if not re.compile("^[0-9]{4}_[0-9]{3}$").match(arg_value):
-        raise argparse.ArgumentTypeError(
-            "invalid release id format. Expected: YYYY_NNN"
-        )
-    return arg_value
-
-
-def git(path: Path, *cmd: str, check=True, **kw):
-    return run(["git"] + list(cmd), cwd=path, check=check, **kw)
-
-
-def git_stdout(path: Path, *cmd: str, **kw):
-    return check_output(["git"] + list(cmd), cwd=path, text=True, **kw)
-
-
-def rev_parse(path: Path, rev: str):
-    return git_stdout(path, "rev-parse", "--verify", rev).strip()
-
-
-def load_json(path: Path, rev: str, obj_path: str):
-    return json.loads(git_stdout(path, "show", rev + ":" + obj_path))
-
-
-def git_remote(path: Path):
-    out = git_stdout(path, "remote", "-v")
-    return re.findall(r"^origin\s(.+?)\s\(.+\)$", out, re.MULTILINE)
-
-
-def ensure_repo(path: Path, url: str, *fetch_args: str):
-    if not path.exists():
-        path.mkdir(parents=True)
-        git(path, "init")
-    if set(git_remote(path)) != {url}:
-        git(path, "remote", "rm", "origin", check=False)
-        git(path, "remote", "add", "origin", url)
-    git(
-        path,
-        "fetch",
-        "origin",
-        "--tags",
-        "--prune",
-        "--prune-tags",
-        "--force",
-        *fetch_args,
-    )
-
-
-def checkout(path: Path, branch: str, reset: bool = False, clean: bool = False):
-    git(path, "checkout", "-q", branch)
-    if reset:
-        git(path, "reset", "-q", "--hard", f"origin/{branch}")
-        # git(path, "merge", "--ff-only")  # expected to fail on unclean/unpushed workdirs
-    if clean:
-        git(path, "clean", "-d", "--force")
-
-
 class Release:
-    def __init__(self, release_id: str, nixos_version: str):
-        self.release_id = release_id
+    def __init__(self, state: State, nixos_version: str):
+        self.release_id = state["release_id"]
         self.nixos_version = nixos_version
+        self.branch_state = state["branches"][nixos_version]
 
         self.branch_dev = f"fc-{self.nixos_version}-dev"
         self.branch_stag = f"fc-{self.nixos_version}-staging"
@@ -146,6 +90,10 @@ class Release:
         checkout(FC_NIXOS, self.branch_prod, reset=True, clean=True)
         checkout(FC_DOCS, self.branch_doc, reset=True, clean=True)
 
+        self.branch_state["orig_staging_commit"] = rev_parse(
+            FC_NIXOS, self.branch_stag
+        )
+
     def skip_no_change(self):
         try:
             git(
@@ -156,8 +104,8 @@ class Release:
                 self.branch_prod,
             )
             print(f"No changes for {self.nixos_version} detected")
-            return SKIP_BRANCH
-        except CalledProcessError as e:
+            raise SystemExit(1)
+        except subprocess.CalledProcessError as e:
             if e.returncode != 1:
                 raise
 
@@ -186,7 +134,7 @@ class Release:
         print()
         print(f"gh pr list --state=merged -B '{self.branch_dev}'")
         try:
-            run(
+            subprocess.run(
                 ["gh", "pr", "list", "--state=merged", "-B", self.branch_dev],
                 cwd=FC_NIXOS,
             )
@@ -207,6 +155,30 @@ class Release:
         print("Press enter to continue")
         input()
 
+    def check_hydra(self):
+        orig_stag_rev = self.branch_state.get(
+            "orig_staging_commit", "<unknown rev>"
+        )
+        if self.nixos_version == "21.05":
+            print(
+                f"Staging: hydra commit id correct ({orig_stag_rev}), build green, does some physical machine in WHQ build it? [Enter to confirm]"
+            )
+            input()
+            print(
+                "Staging: sensu checks green for hardware in WHQ? [Enter to confirm]"
+            )
+            input()
+            return
+        prefix = machine_prefix(self.nixos_version)
+        print(
+            f"Staging: hydra commit id correct ({orig_stag_rev}), build green, does {prefix}stag00 build it? [Enter to confirm]"
+        )
+        input()
+        print(
+            f"Staging: releasetest sensu checks green? Look at https://sensu.rzob.gocept.net/#/clients?q={prefix}* [Enter to confirm]"
+        )
+        input()
+
     def collect_changelog(self):
         checkout(FC_NIXOS, self.branch_stag)
         if not CHANGELOG.parent.exists():
@@ -224,12 +196,11 @@ class Release:
 
         TEMP_CHANGELOG.open("w").close()  # truncate
         try:
-            run(["scriv", "collect", "--add"], cwd=FC_NIXOS, check=True)
-        except CalledProcessError:
-            print("'scriv' failed. Continuing without changelog...")
-            return
-        except FileNotFoundError:
-            print("'scriv' is not available. Continuing without changelog...")
+            subprocess.run(
+                ["scriv", "collect", "--add"], cwd=FC_NIXOS, check=True
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            print("'scriv' failed/unavailable. Continuing without changelog...")
             return
         finally:
             new_fragment = TEMP_CHANGELOG.read_text()
@@ -261,7 +232,7 @@ class Release:
                 str(CHANGELOG.relative_to(FC_NIXOS)),
             )
             git(FC_NIXOS, "commit", "-m", "Collect changelog fragments")
-        except CalledProcessError:
+        except subprocess.CalledProcessError:
             print(
                 "Failed to commit Changelog. Commit it manually and continue after the `collect_changelog` stage"
             )
@@ -274,6 +245,9 @@ class Release:
             f"'{self.branch_prod}' for release {self.release_id}"
         )
         git(FC_NIXOS, "merge", "-m", msg, self.branch_stag)
+        self.branch_state["new_production_commit"] = rev_parse(
+            FC_NIXOS, self.branch_prod
+        )
 
     def backmerge(self):
         checkout(FC_NIXOS, self.branch_dev)
@@ -298,7 +272,7 @@ class Release:
 
         print("Press enter to open generated changelog fragment")
         input()
-        run([EDITOR, str(self.doc_fragment_detailed_path)])
+        subprocess.run([EDITOR, str(self.doc_fragment_detailed_path)])
         git(
             FC_DOCS,
             "add",
@@ -323,7 +297,7 @@ class Release:
             new_versions = load_json(FC_NIXOS, new_rev, versions_path)
             old_nixpkgs_rev = old_versions["nixpkgs"]["rev"]
             new_nixpkgs_rev = new_versions["nixpkgs"]["rev"]
-        except CalledProcessError:
+        except subprocess.CalledProcessError:
             print(
                 "Could not find relevant version file. Continuing without nixpkgs changelog..."
             )
@@ -370,12 +344,9 @@ class Release:
         )
         print()
         print(
-            "If this looks correct, press Enter to push (or use ^C to abort all releases and ^D to abort this release)."
+            "If this looks correct, press Enter to push (or use ^C to abort)."
         )
-        try:
-            input()
-        except EOFError:
-            return SKIP_BRANCH
+        input()
         git(
             FC_NIXOS,
             "push",
@@ -387,37 +358,12 @@ class Release:
         git(FC_DOCS, "push", "origin", self.branch_doc)
 
 
-def main():
-    os.environ["PAGER"] = ""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("release_id", type=release_id_type)
-    parser.add_argument(
-        "--nixos_versions",
-        default=DEFAULT_NIXOS_VERSIONS,
-        nargs="*",
-        help="(default: %(default)s)",
-    )
-    parser.add_argument(
-        "--steps",
-        choices=["all"] + STEPS,
-        default="all",
-        nargs="*",
-        help="(default: %(default)s)",
-    )
-    args = parser.parse_args()
-    if args.steps == "all" or "all" in args.steps:
-        args.steps = STEPS
-
-    for nixos_version in args.nixos_versions:
-        release = Release(args.release_id, nixos_version)
-        print(f"\nPerforming release for {nixos_version} ({args.release_id})")
-        for step_name in args.steps:
-            print(f"\nRelease step: {step_name}")
-            rc = getattr(release, step_name)()
-            if rc == SKIP_BRANCH:
-                print(f"Aborted release for {nixos_version}")
-                break
-
-
-if __name__ == "__main__":
-    main()
+def main(state: State, nixos_version: str, steps: list[str]):
+    if nixos_version in state["branches"]:
+        print(f"Branch '{nixos_version}' already added")
+        return
+    release = Release(state, nixos_version)
+    print(f"Adding {nixos_version} to {state['release_id']}")
+    for step_name in steps:
+        print(f"\nRelease step: {step_name}")
+        getattr(release, step_name)()

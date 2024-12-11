@@ -12,7 +12,7 @@
         pypkgs = pkgs.python3.pkgs;
       in {
         default = pypkgs.buildPythonApplication {
-          name = "fc-release";
+          name = "release";
           src = ./.;
           pyproject = true;
           build-system = [ pypkgs.setuptools-scm ];
