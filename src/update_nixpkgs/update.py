@@ -30,6 +30,7 @@ from git.exc import GitCommandError
 from github import Auth, Github
 
 from update_nixpkgs import FC_NIXOS_REPO, NIXPKGS_REPO
+from utils.matrix import MatrixHookshot
 
 NIXOS_VERSION_PATH = "release/nixos-version"
 PACKAGE_VERSIONS_PATH = "release/package-versions.json"
@@ -248,7 +249,9 @@ def run(
     nixpkgs_dir: str,
     force: bool,
     github_access_token: str,
+    matrix_hookshot_url: str
 ):
+    matrix_hookshot = MatrixHookshot(matrix_hookshot_url)
     today = datetime.date.today().isoformat()
     yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
 
