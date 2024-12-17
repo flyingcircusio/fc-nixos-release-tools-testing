@@ -3,8 +3,8 @@ import os
 import sys
 from logging import INFO, basicConfig
 
-FC_NIXOS_REPO = "flyingcircusio/fc-nixos"
-NIXPKGS_REPO = "flyingcircusio/nixpkgs"
+FC_NIXOS_REPO = "flyingcircusio/fc-nixos-testing"
+NIXPKGS_REPO = "flyingcircusio/nixpkgs-testing"
 
 
 def main():

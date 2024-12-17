@@ -292,7 +292,8 @@ def run(
             nixpkgs_target_branch,
             integration_branch,
             last_day_integration_branch,
-            force
+            force,
+            matrix_hookshot
         ):
             logging.info(
                 f"Updated 'nixpkgs' to '{result.fork_after_rebase.hexsha}'"

@@ -51,31 +51,31 @@ def nixpkgs_repository(directory: str, remotes: dict[str, Remote]) -> Repo:
     return repo
 
 
-def check_nixpkgs_up_to_date(nixpkgs_repo: Repo, fc_nixos_dir: str,  target_branch: str, integration_branch: str, fc_nixos_pr: PullRequest, matrix_hookshot: MatrixHookshot):
+def check_nixpkgs_up_to_date(nixpkgs_repo: Repo, fc_nixos_dir: str,  fc_nixos_target_branch: str, nixpkgs_target_branch: str, integration_branch: str, fc_nixos_pr: PullRequest, matrix_hookshot: MatrixHookshot):
     fc_nixos_repo = Repo(fc_nixos_dir)
     versions_json_path = Path(fc_nixos_dir) / "release" / "versions.json"
 
-    merge_base = fc_nixos_repo.merge_base(
-        f"origin/{target_branch}", f"origin/{integration_branch}"
-    )
+    # HEAD = the head of the merged PR (before merge)
+    # XXX: This makes an assumption that the PR only contains 1 commit. This should be cleaned up.
+    merge_base = fc_nixos_repo.git.rev_parse("HEAD^")
     # The integration branch is directly branched of the target branch, so we can only have one merge base.
-    assert len(merge_base) == 1
-    fc_nixos_repo.git.switch(merge_base[0].hexsha, detach=True)
+    fc_nixos_repo.git.switch(merge_base, detach=True)
 
     with open(versions_json_path) as f:
         versions = json.load(f)
     previous_versions_rev = versions["nixpkgs"]["rev"]
 
-    current_fc_nixos_commit = nixpkgs_repo.refs[f"origin/{target_branch}"].commit
+    current_fc_nixos_commit = nixpkgs_repo.refs[f"origin/{nixpkgs_target_branch}"].commit
     result = current_fc_nixos_commit.hexsha == previous_versions_rev
     if not result:
-        notification = f"""ERROR Unable to promote nixpkgs daily integration branch `{integration_branch}` to `{target_branch}`.
-Integration branch not up to date. Expected commit `{previous_versions_rev}` as HEAD commit of `flyingcircusio/nixpkgs/{target_branch}`, but got `{current_fc_nixos_commit.hexsha}`. 
+        notification = f"""ERROR Unable to promote nixpkgs daily integration branch `{integration_branch}` to `{nixpkgs_target_branch}`.
+Integration branch not up to date. Expected commit `{previous_versions_rev}` as HEAD commit of `flyingcircusio/nixpkgs/{nixpkgs_target_branch}`, but got `{current_fc_nixos_commit.hexsha}`. 
 
 Please resolve manually by looking at the changes in nixpkgs between these commits, and then run the update-script for fc-nixos."""
         fc_nixos_pr.create_issue_comment(notification)
         matrix_hookshot.send_notification(f"update-nixpkgs PR #{fc_nixos_pr.number}: {notification}")
-
+        logging.info(f"Expected commit `{previous_versions_rev}` as HEAD commit of `flyingcircusio/nixpkgs/{nixpkgs_target_branch}`, but got `{current_fc_nixos_commit.hexsha}`")
+    return result
 
 def promote_nixpkgs(
     gh: Github, nixpkgs_repo: Repo, target_branch: str, integration_branch: str
@@ -146,7 +146,7 @@ def run(
     }
 
     nixpkgs_repo = nixpkgs_repository(nixpkgs_dir, remotes)
-    if not check_nixpkgs_up_to_date(nixpkgs_repo, fc_nixos_dir, nixpkgs_target_branch, integration_branch, fc_nixos_pr, matrix_hookshot):
+    if not check_nixpkgs_up_to_date(nixpkgs_repo, fc_nixos_dir, fc_nixos_pr.base.ref, nixpkgs_target_branch, integration_branch, fc_nixos_pr, matrix_hookshot):
         logging.error("Abort promotion of nixpkgs branch. PR is not up to date.")
         return
     if promote_nixpkgs(gh, nixpkgs_repo, nixpkgs_target_branch, integration_branch):
