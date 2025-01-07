@@ -17,9 +17,9 @@ class STAGE(str, Enum):
 class BranchState(TypedDict, total=False):
     tested: bool
     orig_staging_commit: str
-    # num_staging_commits: int  # incl/excl merge, changelog...?
     new_production_commit: str
     hydra_eval_id: str
+    changelog: str
 
 
 class State(TypedDict, total=False):

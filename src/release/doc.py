@@ -1,7 +1,10 @@
 import subprocess
 
+from .markdown import MarkdownTree
 from .state import STAGE, State
-from .utils import EDITOR, FC_DOCS, checkout, ensure_repo, git
+from .utils import FC_DOCS, checkout, ensure_repo, git
+
+FRAGMENTS_DIR = FC_DOCS / "changelog.d"
 
 INDEX_TEMPLATE = """\
 # {year}
@@ -13,22 +16,6 @@ Releases performed in {year}.
 
 {releases}
 ```
-"""
-
-CHANGELOG_TEMPLATE = """\
----
-Publish Date: '{release_date}'
----
-
-# Release {release_id} ({release_date})
-
-% scriv-insert-here
-
-## Documentation
-
-- nothing yet
-
-% vim: set spell spelllang=en:
 """
 
 
@@ -53,20 +40,38 @@ def main(state: State):
         )
     except FileNotFoundError:
         print("'gh' is not available. Please check PRs manually")
-    input("Press enter to continue")
 
     year, release_num = state["release_id"].split("_", maxsplit=1)
     new_file = FC_DOCS.joinpath(f"src/changes/{year}/r{release_num}.md")
 
-    new_text = CHANGELOG_TEMPLATE.format(
-        release_id=state["release_id"], release_date=state["release_date"]
-    )
-    new_file.write_text(new_text)
-    new_file_symlink = FC_DOCS.joinpath("CHANGES.md")
-    new_file_symlink.unlink(missing_ok=True)
-    new_file_symlink.symlink_to(new_file.relative_to(new_file_symlink.parent))
+    changelog = MarkdownTree()
+    for k, v in sorted(state["branches"].items()):
+        frag = MarkdownTree.from_str(v.get("changelog", ""))
+        frag["Impact"].add_header(k)
+        frag.rename("NixOS XX.XX platform", f"NixOS {k} platform")
+        frag["Detailed Changes"].entries = [
+            f"- NixOS {k}: "
+            + ", ".join(
+                e.removeprefix("- ") for e in frag["Detailed Changes"].entries
+            )
+        ]
 
-    subprocess.check_call(["scriv", "collect"], cwd=FC_DOCS)
+        changelog |= frag
+
+    changelog["Documentation"] += "<!--\nadd entries if necessary\n-->"
+    changelog.move_to_end("Detailed Changes")
+    changelog.add_header(
+        f"Release {state['release_id']} ({state['release_date']})"
+    )
+    changelog.entries.insert(
+        0, f"---\nPublish Date: '{state['release_date']}'\n---"
+    )
+    changelog.strip()
+
+    input("Press enter to open the new changelog")
+    changelog.open_in_editor()
+    changelog.strip()
+    new_file.write_text(changelog.to_str())
 
     index_file = FC_DOCS / f"src/changes/{year}/index.md"
     releases = [
@@ -79,15 +84,12 @@ def main(state: State):
     )
     index_file.write_text(index_content)
 
-    input("Press enter to open the new changelog (remove empty sections)")
-    subprocess.run([EDITOR, str(new_file)])
     print("Committing changes")
     git(
         FC_DOCS,
         "add",
         str(new_file.relative_to(FC_DOCS)),
         str(index_file.relative_to(FC_DOCS)),
-        str(new_file_symlink.relative_to(FC_DOCS)),
     )
     git(FC_DOCS, "commit", "-m", f"add changelog r{release_num}")
 
