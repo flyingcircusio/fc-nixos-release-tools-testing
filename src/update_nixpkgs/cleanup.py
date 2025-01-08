@@ -76,7 +76,9 @@ def rebase_nixpkgs(
     return True
 
 
-def cleanup_old_prs_and_branches(gh: Github, merged_integration_branch: str, platform_branch: str):
+def cleanup_old_prs_and_branches(
+    gh: Github, merged_integration_branch: str, platform_branch: str
+):
     info("Cleaning up old PRs and branches.")
     fc_nixos_repo = gh.get_repo(FC_NIXOS_REPO)
     nixpkgs_repo = gh.get_repo(NIXPKGS_REPO)
@@ -86,7 +88,9 @@ def cleanup_old_prs_and_branches(gh: Github, merged_integration_branch: str, pla
     # branches will be closed automatically by GitHub, when the branch is deleted
     for repo in [fc_nixos_repo, nixpkgs_repo]:
         for branch in repo.get_branches():
-            if not branch.name.startswith(f"nixpkgs-auto-update/{platform_branch}/"):
+            if not branch.name.startswith(
+                f"nixpkgs-auto-update/{platform_branch}/"
+            ):
                 continue
             branch_datestr = branch.name.split("/")[2]
             if (
@@ -124,4 +128,6 @@ def run(
         fc_nixos_pr.create_issue_comment(
             f"Rebased nixpkgs `{nixpkgs_target_branch}` branch successfully."
         )
-        cleanup_old_prs_and_branches(gh, integration_branch, fc_nixos_pr.base.ref)
+        cleanup_old_prs_and_branches(
+            gh, integration_branch, fc_nixos_pr.base.ref
+        )

@@ -54,7 +54,7 @@ def main():
         "--force",
         help="Create new PR, even if no changes are detected",
         action=argparse.BooleanOptionalAction,
-        default=False
+        default=False,
     )
     parser_update.set_defaults(func=update_nixpkgs.update.run)
 
