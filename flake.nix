@@ -20,7 +20,6 @@
             pypkgs.setuptools
             pypkgs.gitpython
             pypkgs.pygithub
-            pkgs.scriv
             pkgs.gh
           ];
         };
@@ -30,7 +29,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
       in {
         default = pkgs.mkShell {
-          packages = [ pkgs.scriv pkgs.gh ];
+          packages = [ pkgs.gh ];
         };
       });
     };

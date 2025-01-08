@@ -8,7 +8,7 @@ EDITOR = os.environ.get("EDITOR", "nano")
 WORK_DIR = Path("work")
 FC_NIXOS = WORK_DIR / "fc-nixos"
 FC_DOCS = WORK_DIR / "doc"
-FC_NIXPKGS = WORK_DIR / "nixpkgs"
+TEMP_CHANGELOG = WORK_DIR / "temp_changelog.md"
 
 
 def git(path: Path, *cmd: str, check=True, **kw):

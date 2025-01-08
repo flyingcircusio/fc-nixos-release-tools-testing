@@ -1,22 +1,15 @@
 import argparse
 import os
 import re
-import subprocess
 from functools import partial
 
 import requests
 
+from release.markdown import MarkdownTree
+
 from . import add_branch, doc
 from .state import STAGE, State, load_state, new_state, store_state
-from .utils import (
-    EDITOR,
-    FC_DOCS,
-    FC_NIXOS,
-    checkout,
-    ensure_repo,
-    git,
-    machine_prefix,
-)
+from .utils import FC_NIXOS, ensure_repo, git, machine_prefix
 
 AVAILABLE_CMDS = {
     STAGE.INIT: ["init", "status"],
@@ -70,9 +63,7 @@ def test_branch(state: State, nixos_version: str):
         print(f"'{nixos_version}' already tested")
         return
 
-    ensure_repo(FC_DOCS, "git@github.com:flyingcircusio/doc.git")
-    checkout(FC_DOCS, "master", reset=True, clean=True)
-
+    changelog = MarkdownTree.from_str(branch_state.get("changelog", ""))
     prod_commit = branch_state.get("new_production_commit", "<unknown rev>")
     print(f"Production: hydra commit id correct? ({prod_commit}), build green?")
     while not (hydra_id := input("Hydra eval ID: ")).isdigit():
@@ -86,23 +77,19 @@ def test_branch(state: State, nixos_version: str):
     )
     input()
 
+    metadata_url = f"https://my.flyingcircus.io/releases/metadata/fc-{nixos_version}-production/{state['release_id']}"
+    changelog["Detailed Changes"] += f"- [metadata]({metadata_url})"
     try:
-        r = requests.get(
-            f"https://my.flyingcircus.io/releases/metadata/fc-{nixos_version}-production/{state['release_id']}",
-            timeout=5,
-        )
+        r = requests.get(metadata_url, timeout=5)
         r.raise_for_status()
         channel_url = r.json()["channel_url"]
-        frag_path = FC_DOCS / "changelog.d" / f"{nixos_version}_channel_url.md"
-        frag_path.write_text(
-            f"## NixOS {nixos_version} platform\n- Production channel for this release: {channel_url}"
-        )
-        git(FC_DOCS, "add", frag_path.relative_to(FC_DOCS))
+        changelog["Detailed Changes"] += f"- [channel url]({channel_url})"
         print("Added channel url fragment")
     except (requests.RequestException, KeyError):
         print(
             "Failed to retrieve channel url. Please add it manually in the next step"
         )
+
     if nixos_version == "21.05":
         print(
             "Production: switch a test VM to the 21.05-production-next channel. Is it working correctly?"
@@ -115,23 +102,10 @@ def test_branch(state: State, nixos_version: str):
     print(
         "Check switch output for unexpected service restarts, compare with changelog, impact properly documented? [Enter to edit]"
     )
-    print(
-        "(This opens the main fragment. Changes from the nixpkgs fragment will not be visible)"
-    )  # TODO
     input()
-    main_changelog_fragment = FC_DOCS / "changelog.d" / f"{nixos_version}.md"
-    subprocess.run([EDITOR, str(main_changelog_fragment)])
-    git(FC_DOCS, "add", str(main_changelog_fragment.relative_to(FC_DOCS)))
-    git(
-        FC_DOCS,
-        "commit",
-        "--allow-empty",
-        "-m",
-        f"Update fragment for {nixos_version}",
-    )
 
-    input("Press enter to push update")
-    git(FC_DOCS, "push", "origin", "master")
+    changelog.open_in_editor()
+    branch_state["changelog"] = changelog.to_str()
 
     branch_state["tested"] = True
 

@@ -92,13 +92,15 @@ def rebase_nixpkgs(
     branch_to_rebase: str,
     integration_branch: str,
     last_day_integration_branch: str,
-    force: bool
+    force: bool,
 ) -> NixpkgsRebaseResult | None:
     logging.info("Trying to rebase nixpkgs repository.")
     if nixpkgs_repo.is_dirty():
         raise Exception("Repository is dirty!")
 
-    if not any(f"origin/{integration_branch}" == ref.name for ref in nixpkgs_repo.refs):
+    if not any(
+        f"origin/{integration_branch}" == ref.name for ref in nixpkgs_repo.refs
+    ):
         logging.info("Creating new integration branch")
         tracking_branch = nixpkgs_repo.create_head(
             integration_branch, f"origin/{branch_to_rebase}"
@@ -113,9 +115,12 @@ def rebase_nixpkgs(
         f"upstream/{branch_to_rebase}", "HEAD"
     )
 
-    if all(
-        latest_upstream.hexsha != commit.hexsha for commit in common_grounds
-    ) or force:
+    if (
+        all(
+            latest_upstream.hexsha != commit.hexsha for commit in common_grounds
+        )
+        or force
+    ):
         logging.info(
             f"Latest commit of {branch_to_rebase} is '{latest_upstream.hexsha}' which is not part of our fork, rebasing."
         )
@@ -267,7 +272,11 @@ def run(
             "upstream": Remote(nixpkgs_upstream_url, [nixpkgs_target_branch]),
             "origin": Remote(
                 nixpkgs_origin_url,
-                [nixpkgs_target_branch, integration_branch, last_day_integration_branch],
+                [
+                    nixpkgs_target_branch,
+                    integration_branch,
+                    last_day_integration_branch,
+                ],
             ),
         }
         nixpkgs_repo = nixpkgs_repository(nixpkgs_dir, remotes)
@@ -276,7 +285,7 @@ def run(
             nixpkgs_target_branch,
             integration_branch,
             last_day_integration_branch,
-            force
+            force,
         ):
             logging.info(
                 f"Updated 'nixpkgs' to '{result.fork_after_rebase.hexsha}'"
