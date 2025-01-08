@@ -33,21 +33,12 @@ def generate_nixpkgs_changelog(old_rev: str, new_rev: str) -> MarkdownTree:
     res[
         "Detailed Changes"
     ] += f"- [platform code](https://github.com/flyingcircusio/fc-nixos/compare/{old_rev}...{new_rev})"
-    versions_path = "release/versions.json"
+
     pversions_path = "release/package-versions.json"
     try:
         old_pversions = load_json(FC_NIXOS, old_rev, pversions_path)
         new_pversions = load_json(FC_NIXOS, new_rev, pversions_path)
-        old_versions = load_json(FC_NIXOS, old_rev, versions_path)
-        new_versions = load_json(FC_NIXOS, new_rev, versions_path)
-        old_nixpkgs_rev = old_versions["nixpkgs"]["rev"]
-        new_nixpkgs_rev = new_versions["nixpkgs"]["rev"]
-    except subprocess.CalledProcessError:
-        print(
-            "Could not find relevant version file. Continuing without nixpkgs changelog..."
-        )
-        return res
-    if old_nixpkgs_rev != new_nixpkgs_rev:
+
         lines = []
         for pkg_name in old_pversions:
             old = old_pversions.get(pkg_name, {}).get("version")
@@ -60,13 +51,31 @@ def generate_nixpkgs_changelog(old_rev: str, new_rev: str) -> MarkdownTree:
             elif old != new:
                 lines.append(f"{pkg_name}: {old} -> {new}")
 
-        res["NixOS XX.XX platform"] += (
-            "- Pull upstream NixOS changes, security fixes and package updates:"
-            + "".join("\n    - " + m for m in lines)
+        if lines:
+            res["NixOS XX.XX platform"] += (
+                "- Pull upstream NixOS changes, security fixes and package updates:"
+                + "".join("\n    - " + m for m in lines)
+            )
+    except subprocess.CalledProcessError:
+        print(
+            f"Could not find {pversions_path}. Continuing without package versions diff..."
         )
-        res[
-            "Detailed Changes"
-        ] += f"- [nixpkgs/upstream changes](https://github.com/flyingcircusio/nixpkgs/compare/{old_nixpkgs_rev}...{new_nixpkgs_rev})"
+
+    versions_path = "release/versions.json"
+    try:
+        old_versions = load_json(FC_NIXOS, old_rev, versions_path)
+        new_versions = load_json(FC_NIXOS, new_rev, versions_path)
+        old_nixpkgs_rev = old_versions["nixpkgs"]["rev"]
+        new_nixpkgs_rev = new_versions["nixpkgs"]["rev"]
+        if old_nixpkgs_rev != new_nixpkgs_rev:
+            res[
+                "Detailed Changes"
+            ] += f"- [nixpkgs/upstream changes](https://github.com/flyingcircusio/nixpkgs/compare/{old_nixpkgs_rev}...{new_nixpkgs_rev})"
+    except subprocess.CalledProcessError:
+        print(
+            f"Could not find {versions_path} file. Continuing without nixpkgs changelog..."
+        )
+
     return res
 
 
