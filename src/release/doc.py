@@ -132,6 +132,6 @@ def main(state: State):
     git(FC_DOCS, "push", "origin", "master")
 
     state["changelog_url"] = (
-        f"https://doc.flyingcircus.io/platform/changes/{year}/{release_num}.html"
+        f"https://doc.flyingcircus.io/platform/changes/{year}/r{release_num}.html"
     )
     state["stage"] = STAGE.TAG
