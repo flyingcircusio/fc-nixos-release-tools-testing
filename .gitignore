@@ -3,3 +3,6 @@
 *.egg-info
 __pycache__
 result
+
+# don't regularly check in the release state
+/state.json
