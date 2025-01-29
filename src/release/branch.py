@@ -3,6 +3,7 @@ import subprocess
 
 import requests
 from rich import print
+from rich.prompt import Confirm
 
 from .markdown import MarkdownTree
 from .state import STAGE, State
@@ -89,6 +90,7 @@ class Release:
         self.release_id = state["release_id"]
         self.nixos_version = nixos_version
         self.branch_state = state["branches"][nixos_version]
+        self.branch_state.pop("tested", None)
 
         self.branch_dev = f"fc-{self.nixos_version}-dev"
         self.branch_stag = f"fc-{self.nixos_version}-staging"
@@ -101,9 +103,10 @@ class Release:
         checkout(FC_NIXOS, self.branch_stag, reset=True, clean=True)
         checkout(FC_NIXOS, self.branch_prod, reset=True, clean=True)
 
-        self.branch_state["orig_staging_commit"] = rev_parse(
-            FC_NIXOS, self.branch_stag
-        )
+        if "orig_staging_commit" not in self.branch_state:
+            self.branch_state["orig_staging_commit"] = rev_parse(
+                FC_NIXOS, self.branch_stag
+            )
 
     def skip_no_change(self):
         try:
@@ -202,7 +205,11 @@ class Release:
             filter(CHANGELOG.__ne__, CHANGELOG.parent.rglob("*.md")), FC_NIXOS
         )
 
-        self.branch_state["changelog"] = new_fragment.to_str()
+        old_changelog = MarkdownTree.from_str(
+            self.branch_state.get("changelog", "")
+        )
+        old_changelog["Detailed Changes"] = ""
+        self.branch_state["changelog"] = (old_changelog | new_fragment).to_str()
 
         new_fragment.strip()
         new_fragment.add_header(f"Release {self.release_id}")
@@ -270,9 +277,16 @@ class Release:
 
 
 def add_branch(state: State, nixos_version: str, steps: list[str]):
-    if nixos_version in state["branches"]:
-        logging.error(f"Branch '{nixos_version}' already added")
-        return
+    if nixos_version in state["branches"] or state["stage"] != STAGE.BRANCH:
+        logging.warning(
+            f"Branch '{nixos_version}' already added or no longer in 'branch' stage"
+        )
+        if not Confirm.ask(
+            "Do you want to (re-)add this branch? "
+            "(This will reset the stage back to 'branch' and may result in duplicate changelog entries)"
+        ):
+            return
+        state["stage"] = STAGE.BRANCH
     release = Release(state, nixos_version)
     logging.info(f"Adding {nixos_version} to {state['release_id']}")
     for step_name in steps:

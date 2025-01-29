@@ -16,7 +16,7 @@ from .utils import prompt
 AVAILABLE_CMDS = {
     STAGE.INIT: ["init", "status"],
     STAGE.BRANCH: ["add-branch", "test-branch", "doc", "status"],
-    STAGE.TAG: ["tag", "status"],
+    STAGE.TAG: ["tag", "add-branch", "status"],
     STAGE.DONE: ["init", "status"],
 }
 
